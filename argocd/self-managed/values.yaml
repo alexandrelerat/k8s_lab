@@ -1,0 +1,10 @@
+# Helm values for the argo-helm/argo-cd chart (https://artifacthub.io/packages/helm/argo/argo-cd).
+# Starting minimal, mirroring the defaults the raw install in ../bootstrap/install.yaml already gave us,
+# so the cutover to Helm management doesn't change behavior on day one.
+
+global:
+  domain: ""
+
+server:
+  service:
+    type: ClusterIP

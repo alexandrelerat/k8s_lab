@@ -1,0 +1,31 @@
+# ArgoCD's own self-management Application: once applied, ArgoCD takes over managing its own
+# Helm release from this repo. From this point on, changes to ArgoCD are made by editing
+# values.yaml (or bumping targetRevision below) and pushing to git, not kubectl edit/helm upgrade.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://argoproj.github.io/argo-helm
+      chart: argo-cd
+      targetRevision: 10.9.2
+      helm:
+        valueFiles:
+          - $values/argocd/self-managed/values.yaml
+    - repoURL: git@gitlab.com:keir0/k8s_lab.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
