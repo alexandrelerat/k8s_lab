@@ -17,7 +17,7 @@ spec:
       helm:
         valueFiles:
           - $values/argocd/self-managed/values.yaml
-    - repoURL: git@gitlab.com:keir0/k8s_lab.git
+    - repoURL: https://gitlab.com/keir0/k8s_lab.git
       targetRevision: main
       ref: values
   destination:
