@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payments-worker
+  template:
+    metadata:
+      labels:
+        app: payments-worker
+    spec:
+      containers:
+        - name: app
+          image: busybox
+          command: ["sh", "-c", "sleep 15 && touch /tmp/ready && sleep 3600"]
+          livenessProbe:
+            exec:
+              command: ["cat", "/tmp/ready"]
+            initialDelaySeconds: 2
+            periodSeconds: 20
+            failureThreshold: 1
