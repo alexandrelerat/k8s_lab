@@ -30,3 +30,12 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+  # The chart sets `hostUsers: true`, a field the API server drops unless the
+  # UserNamespacesSupport feature gate is on (it's off by default on 1.30), so the live
+  # Deployment never matches.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: local-path-provisioner
+      jqPathExpressions:
+        - .spec.template.spec.hostUsers

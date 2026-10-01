@@ -43,3 +43,19 @@ spec:
       - CreateNamespace=true
       # The operator CRDs exceed the 256KB annotation limit of client-side apply.
       - ServerSideApply=true
+      # Keep the live values of the fields ignored below when syncing.
+      - RespectIgnoreDifferences=true
+  # ArgoCD renders the chart with `helm template`, so Grafana's chart generates a new
+  # random admin password on every render (its `lookup` of the existing Secret doesn't run).
+  # Ignore it, and the Secret checksum it puts on the Deployment, so the app stays Synced
+  # and the password doesn't change on every sync.
+  ignoreDifferences:
+    - kind: Secret
+      name: kube-prometheus-stack-grafana
+      jsonPointers:
+        - /data/admin-password
+    - group: apps
+      kind: Deployment
+      name: kube-prometheus-stack-grafana
+      jsonPointers:
+        - /spec/template/metadata/annotations/checksum~1secret
