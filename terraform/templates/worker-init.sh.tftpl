@@ -3,6 +3,10 @@ set -euxo pipefail
 exec > >(tee /var/log/k8s-bootstrap.log) 2>&1
 
 # --- OS prep ---
+# Readable hostname, also used as the Kubernetes node name below.
+hostnamectl set-hostname ${node_name}
+echo "127.0.1.1 ${node_name}" >> /etc/hosts
+
 swapoff -a
 sed -ri '/\sswap\s/s/^/#/' /etc/fstab
 
@@ -41,15 +45,23 @@ apt-get install -y kubelet kubeadm kubectl
 apt-mark hold kubelet kubeadm kubectl
 
 # --- wait for the control plane to publish the join command, then join ---
+# Terraform seeds the parameter with "pending"; the control plane overwrites it
+# once kubeadm init is done. Wait up to 20 minutes.
 JOIN_CMD=""
-for i in $(seq 1 30); do
+for i in $(seq 1 120); do
   JOIN_CMD=$(aws ssm get-parameter --region ${region} \
     --name "/${project_name}/join-command" \
     --with-decryption --query 'Parameter.Value' --output text 2>/dev/null || true)
-  if [ -n "$JOIN_CMD" ] && [ "$JOIN_CMD" != "None" ]; then
+  if [[ "$JOIN_CMD" == "kubeadm join "* ]]; then
     break
   fi
+  JOIN_CMD=""
   sleep 10
 done
 
-eval "$JOIN_CMD"
+if [ -z "$JOIN_CMD" ]; then
+  echo "Timed out waiting for the join command in /${project_name}/join-command" >&2
+  exit 1
+fi
+
+eval "$JOIN_CMD --node-name=${node_name}"
