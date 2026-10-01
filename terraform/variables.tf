@@ -10,10 +10,28 @@ variable "aws_profile" {
   default     = null
 }
 
-variable "instance_type" {
-  description = "EC2 instance type for both the control-plane and worker nodes"
+variable "control_plane_instance_type" {
+  description = "EC2 instance type for the control-plane node"
   type        = string
   default     = "t3.small"
+}
+
+variable "worker_instance_type" {
+  description = "EC2 instance type for the worker nodes"
+  type        = string
+  default     = "t3.medium"
+}
+
+variable "worker_count" {
+  description = "Number of worker nodes"
+  type        = number
+  default     = 2
+}
+
+variable "worker_root_volume_size" {
+  description = "Root EBS volume size (GiB) of each worker. PersistentVolumes from local-path-provisioner live on this disk."
+  type        = number
+  default     = 30
 }
 
 variable "ssh_public_key_path" {

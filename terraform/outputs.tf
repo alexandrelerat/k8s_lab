@@ -3,9 +3,9 @@ output "control_plane_public_ip" {
   value       = aws_instance.control_plane.public_ip
 }
 
-output "worker_public_ip" {
-  description = "Public IP of the worker node"
-  value       = aws_instance.worker.public_ip
+output "worker_public_ips" {
+  description = "Public IPs of the worker nodes"
+  value       = aws_instance.worker[*].public_ip
 }
 
 output "ssh_control_plane" {
@@ -13,9 +13,9 @@ output "ssh_control_plane" {
   value       = "ssh -i ${local.ssh_private_key_path} ubuntu@${aws_instance.control_plane.public_ip}"
 }
 
-output "ssh_worker" {
-  description = "SSH command to reach the worker node"
-  value       = "ssh -i ${local.ssh_private_key_path} ubuntu@${aws_instance.worker.public_ip}"
+output "ssh_workers" {
+  description = "SSH commands to reach the worker nodes"
+  value       = [for w in aws_instance.worker : "ssh -i ${local.ssh_private_key_path} ubuntu@${w.public_ip}"]
 }
 
 output "fetch_kubeconfig_command" {
