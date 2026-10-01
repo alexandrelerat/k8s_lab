@@ -1,0 +1,95 @@
+# observability
+
+An OpenTelemetry pipeline on the cluster, deployed and kept in sync by ArgoCD:
+
+```
+browser ──/etc/hosts (127.0.0.1)──> kubectl port-forward :8080 ──(SSH tunnel to the API server)──> Traefik
+        hotrod / podinfo / grafana / prometheus .k8s-lab.test:8080
+Traefik, HotROD, podinfo ──OTLP──> OTel Collector ──traces──> Tempo ──span metrics, service graph──┐
+                                                  └─metrics─> Prometheus (OTLP receiver) <──remote write┘
+Prometheus also scrapes /metrics of HotROD, podinfo, the collector, Tempo, kube-state-metrics, node-exporter
+Grafana: Prometheus + Tempo datasources, exemplars linking metrics to traces
+```
+
+Both ways of getting metrics into Prometheus show up here on purpose: OTLP push (Traefik, through the collector) and Prometheus pull (the demo apps' `/metrics`).
+
+## Layout
+
+- `root.yaml`: app-of-apps. The only thing applied by hand, it makes ArgoCD sync every Application in `apps/`.
+- `apps/`: one ArgoCD Application per component. Like `../argocd/self-managed/application.yaml`, each one pins an upstream chart version and takes its values from `values/` in this repo. Sync waves order them: `local-path-provisioner` (-2), `kube-prometheus-stack` (-1, ships the ServiceMonitor CRDs), then `tempo`, `otel-collector`, `traefik` (0), then `demo-apps` (1).
+- `values/`: Helm values for each chart, commented.
+- `demo-apps/`: plain manifests for the instrumented apps, [HotROD](https://github.com/jaegertracing/jaeger/tree/main/examples/hotrod) and [podinfo](https://github.com/stefanprodan/podinfo).
+
+| Component | Namespace | Chart |
+|---|---|---|
+| local-path-provisioner (default StorageClass) | `local-path-storage` | rancher/local-path-provisioner (git, `v0.0.37`) |
+| kube-prometheus-stack (Prometheus, Grafana, operator, kube-state-metrics, node-exporter) | `observability` | `prometheus-community/kube-prometheus-stack` `91.8.2` |
+| Tempo | `observability` | `grafana-community/tempo` `3.1.0` |
+| OpenTelemetry Collector | `observability` | `open-telemetry/opentelemetry-collector` `0.174.0` |
+| Traefik | `traefik` | `traefik/traefik` `41.6.1` |
+| HotROD, podinfo | `demo` | `demo-apps/` |
+
+## Prerequisites
+
+- The cluster from `../terraform/` with 2 `t3.medium` workers (the whole stack needs about 3.5 GB of RAM, which doesn't fit on `t3.small` nodes), and the SSH tunnel to the API server from its `fetch_kubeconfig_command` output. Nothing else is exposed: the browser reaches Traefik through `kubectl port-forward`.
+- ArgoCD from `../argocd/`.
+- These files pushed to `main` on the GitLab remote: ArgoCD reads them from git, not from your laptop.
+
+## Install
+
+```bash
+export KUBECONFIG=$(pwd)/../terraform/kubeconfig
+kubectl apply -f root.yaml
+kubectl -n argocd get applications -w   # wait until everything is Synced / Healthy
+```
+
+The first sync takes a few minutes. Some Applications go through a couple of failed attempts first (e.g. Traefik's or the demo apps' ServiceMonitors before the CRD exists, or the collector before Prometheus is up). Each Application has `syncPolicy.retry`, so they converge without intervention.
+
+Then, once, point the lab hostnames at your laptop:
+
+```bash
+echo "127.0.0.1 hotrod.k8s-lab.test podinfo.k8s-lab.test grafana.k8s-lab.test prometheus.k8s-lab.test" | sudo tee -a /etc/hosts
+```
+
+And each session, forward a local port to Traefik (it rides the same SSH tunnel as `kubectl`):
+
+```bash
+kubectl -n traefik port-forward svc/traefik 8080:80
+```
+
+Traefik's `Host` rules ignore the port, so `http://<name>.k8s-lab.test:8080` routes like port 80 would.
+
+## Using it
+
+- `http://hotrod.k8s-lab.test:8080`: click a few customers to order rides. Each click is a trace spanning Traefik, frontend, customer, driver and route, with the fake MySQL/Redis calls.
+- `http://podinfo.k8s-lab.test:8080`: or generate load with `for i in $(seq 100); do curl -s http://podinfo.k8s-lab.test:8080/delay/1 >/dev/null & done`.
+- `http://grafana.k8s-lab.test:8080`: user `admin`, password from `kubectl -n observability get secret kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d`.
+- `http://prometheus.k8s-lab.test:8080`: Status > Target health should show everything up.
+
+Things to look at in Grafana:
+
+- **Explore > Tempo > Search**: HotROD traces whose root span is `traefik`. Open one to see the critical path and the slow MySQL span.
+- **Explore > Tempo > Service Graph**: the call graph built from the traces by Tempo's metrics-generator.
+- **Explore > Prometheus**:
+  - `traces_spanmetrics_calls_total`, `traces_spanmetrics_latency_bucket`: RED metrics derived from spans by Tempo (remote-written).
+  - `traefik_*` (e.g. `traefik_service_requests_total`): Traefik's metrics, pushed as OTLP through the collector.
+  - `hotrod_*`, `http_requests_total{job="podinfo"}`: scraped from the apps.
+  - Turn on **Exemplars** on a `histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket[5m])))` query: each dot links to a real trace.
+- **Dashboards**: the kube-prometheus-stack ones (Kubernetes / Compute Resources, Node Exporter) to watch the memory headroom on the workers.
+
+Collector logs show a one-line summary per batch it forwards, which is the quickest "is anything arriving?" check:
+
+```bash
+kubectl -n observability logs deploy/otel-collector -f
+```
+
+## Changing things
+
+Edit `values/` or `demo-apps/`, or bump a chart's `targetRevision` in `apps/`, then push. ArgoCD picks it up. Don't `helm upgrade` or `kubectl edit` these resources, `selfHeal` reverts it.
+
+## Not covered (yet)
+
+- kubeadm binds etcd, the scheduler, the controller-manager and kube-proxy metrics to `127.0.0.1`, so they're disabled in `kube-prometheus-stack` instead of showing as down targets.
+- No TLS: everything above uses plain HTTP through the port-forward.
+- No logs pipeline: the collector accepts OTLP logs but only prints them (`debug` exporter). Loki would be the natural next backend.
+- A custom app with hand-written OTel SDK instrumentation, to replace or complement `demo-apps/`.

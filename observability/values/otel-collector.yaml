@@ -1,0 +1,75 @@
+# Helm values for open-telemetry/opentelemetry-collector
+# (https://github.com/open-telemetry/opentelemetry-helm-charts/tree/main/charts/opentelemetry-collector).
+# Single gateway Deployment; apps send OTLP to otel-collector.observability.svc:4317 (gRPC)
+# or :4318 (HTTP).
+
+mode: deployment
+fullnameOverride: otel-collector
+
+image:
+  # contrib distribution: includes the k8sattributes processor.
+  repository: otel/opentelemetry-collector-contrib
+
+presets:
+  # Enrich every span/metric with the sending pod's k8s.namespace.name, k8s.pod.name,
+  # k8s.deployment.name, k8s.node.name... (adds the processor and its RBAC).
+  kubernetesAttributes:
+    enabled: true
+
+# Only OTLP is used; drop the Jaeger/Zipkin receivers' ports.
+ports:
+  jaeger-compact:
+    enabled: false
+  jaeger-thrift:
+    enabled: false
+  jaeger-grpc:
+    enabled: false
+  zipkin:
+    enabled: false
+  metrics:
+    enabled: true
+
+serviceMonitor:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 256Mi
+
+config:
+  receivers:
+    jaeger: null
+    zipkin: null
+    # The chart's default self-scrape is replaced by the ServiceMonitor above.
+    prometheus: null
+  exporters:
+    otlp_grpc/tempo:
+      endpoint: tempo.observability.svc:4317
+      tls:
+        insecure: true
+    otlp_http/prometheus:
+      # Prometheus' native OTLP receiver (enableOTLPReceiver in kube-prometheus-stack.yaml).
+      endpoint: http://kube-prometheus-stack-prometheus.observability.svc:9090/api/v1/otlp
+      tls:
+        insecure: true
+    # Prints a one-line summary per batch in the collector logs: handy to check that data
+    # arrives at all. Switch to "detailed" to see every span/datapoint.
+    debug:
+      verbosity: basic
+  service:
+    pipelines:
+      traces:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlp_grpc/tempo, debug]
+      metrics:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [otlp_http/prometheus, debug]
+      logs:
+        receivers: [otlp]
+        processors: [memory_limiter, batch]
+        exporters: [debug]

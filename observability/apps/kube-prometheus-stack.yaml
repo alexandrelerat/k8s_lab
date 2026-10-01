@@ -1,0 +1,45 @@
+# Prometheus (with its OTLP and remote-write receivers enabled), the Prometheus operator,
+# kube-state-metrics, node-exporter and Grafana. Synced first among the charts because it
+# ships the ServiceMonitor/PodMonitor CRDs the other components rely on.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kube-prometheus-stack
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://prometheus-community.github.io/helm-charts
+      chart: kube-prometheus-stack
+      targetRevision: 91.8.2
+      helm:
+        releaseName: kube-prometheus-stack
+        valueFiles:
+          - $values/observability/values/kube-prometheus-stack.yaml
+    - repoURL: https://gitlab.com/keir0/k8s_lab.git
+      targetRevision: obs
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    # Child Applications sync in wave order but ArgoCD doesn't wait for one to be
+    # healthy before starting the next, so CRDs (ServiceMonitor) or Services a chart
+    # depends on may not exist yet on the first attempt. Retrying converges.
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - CreateNamespace=true
+      # The operator CRDs exceed the 256KB annotation limit of client-side apply.
+      - ServerSideApply=true

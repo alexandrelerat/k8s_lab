@@ -1,0 +1,45 @@
+# Helm values for traefik/traefik (https://github.com/traefik/traefik-helm-chart).
+# Nothing is exposed outside the cluster (only SSH is open on the nodes): Traefik is a
+# ClusterIP Service reached with `kubectl port-forward` through the SSH tunnel to the API
+# server. A LoadBalancer Service would never get an address anyway, there's no cloud
+# controller on this kubeadm cluster.
+
+service:
+  spec:
+    type: ClusterIP
+
+ingressClass:
+  enabled: true
+  isDefaultClass: true
+
+# Push Traefik's own metrics and traces as OTLP to the collector. Every request through
+# Traefik starts a trace and propagates the W3C traceparent header to the backend, so app
+# spans appear as children of the edge span.
+metrics:
+  otlp:
+    enabled: true
+    serviceName: traefik
+    addEntryPointsLabels: true
+    addRoutersLabels: true
+    addServicesLabels: true
+    http:
+      enabled: true
+      endpoint: http://otel-collector.observability.svc:4318/v1/metrics
+
+tracing:
+  serviceName: traefik
+  otlp:
+    enabled: true
+    http:
+      enabled: true
+      endpoint: http://otel-collector.observability.svc:4318/v1/traces
+
+accessLog:
+  enabled: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 128Mi

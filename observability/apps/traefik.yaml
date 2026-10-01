@@ -1,0 +1,42 @@
+# Traefik ingress controller, a ClusterIP Service reached through `kubectl port-forward`.
+# Emits its own OTLP traces and metrics, so each request trace starts at the edge.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://traefik.github.io/charts
+      chart: traefik
+      targetRevision: 41.6.1
+      helm:
+        releaseName: traefik
+        valueFiles:
+          - $values/observability/values/traefik.yaml
+    - repoURL: https://gitlab.com/keir0/k8s_lab.git
+      targetRevision: obs
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    # Child Applications sync in wave order but ArgoCD doesn't wait for one to be
+    # healthy before starting the next, so CRDs (ServiceMonitor) or Services a chart
+    # depends on may not exist yet on the first attempt. Retrying converges.
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - CreateNamespace=true

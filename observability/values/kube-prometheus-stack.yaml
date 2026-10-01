@@ -1,0 +1,139 @@
+# Helm values for prometheus-community/kube-prometheus-stack
+# (https://artifacthub.io/packages/helm/prometheus-community/kube-prometheus-stack).
+# Sized for 2x t3.medium workers: alertmanager off, short retention, explicit small requests.
+
+# kubeadm binds etcd, the scheduler, the controller-manager and kube-proxy metrics to
+# 127.0.0.1, so Prometheus can't scrape them and they'd only show up as down targets.
+# Exposing them (bind-address 0.0.0.0 in the kubeadm config) is a good follow-up exercise.
+kubeEtcd:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+alertmanager:
+  enabled: false
+
+prometheus:
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - prometheus.k8s-lab.test
+    paths:
+      - /
+  prometheusSpec:
+    retention: 3d
+    # Pick up every ServiceMonitor/PodMonitor in the cluster, not only the ones carrying
+    # this Helm release's label (demo apps and Traefik ship their own).
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    # OTLP receiver at /api/v1/otlp/v1/metrics: the OTel Collector pushes app metrics here.
+    enableOTLPReceiver: true
+    otlp:
+      # Turn these OTLP resource attributes into labels on every series, so OTLP-pushed
+      # metrics can be filtered like scraped ones.
+      promoteResourceAttributes:
+        - k8s.namespace.name
+        - k8s.pod.name
+        - k8s.deployment.name
+        - k8s.node.name
+    # Remote-write receiver at /api/v1/write: Tempo's metrics-generator pushes here.
+    enableRemoteWriteReceiver: true
+    # Keep exemplars (trace IDs attached to samples) so Grafana can jump from a metric to a trace.
+    enableFeatures:
+      - exemplar-storage
+    exemplars:
+      maxSize: 100000
+    # Pushed samples (OTLP, remote write) can arrive slightly late or out of order.
+    tsdb:
+      outOfOrderTimeWindow: 10m
+    resources:
+      requests:
+        cpu: 100m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 5Gi
+
+prometheusOperator:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+kube-state-metrics:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi
+
+grafana:
+  # Default admin password comes from the chart; read it from the
+  # kube-prometheus-stack-grafana Secret (see ../README.md).
+  ingress:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+      - grafana.k8s-lab.test
+    path: /
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 384Mi
+  sidecar:
+    datasources:
+      # The built-in Prometheus datasource (uid "prometheus"): exemplars carrying a
+      # trace_id label link straight to the trace in Tempo.
+      exemplarTraceIdDestinations:
+        datasourceUid: tempo
+        traceIdLabelName: trace_id
+        urlDisplayLabel: View trace
+      # Alertmanager is disabled above, don't provision a datasource pointing at it.
+      alertmanager:
+        enabled: false
+  additionalDataSources:
+    - name: Tempo
+      uid: tempo
+      type: tempo
+      access: proxy
+      url: http://tempo.observability.svc:3200
+      jsonData:
+        # Service graph and span-metrics views are computed by Tempo's metrics-generator
+        # and queried from Prometheus.
+        serviceMap:
+          datasourceUid: prometheus
+        nodeGraph:
+          enabled: true
+        tracesToMetrics:
+          datasourceUid: prometheus
+          tags:
+            - key: service.name
+              value: service
+        search:
+          hide: false

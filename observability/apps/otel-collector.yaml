@@ -1,0 +1,42 @@
+# The OpenTelemetry Collector every app sends OTLP to: traces go to Tempo, metrics to
+# Prometheus. Apps only know the collector address, never the backends.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: otel-collector
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  sources:
+    - repoURL: https://open-telemetry.github.io/opentelemetry-helm-charts
+      chart: opentelemetry-collector
+      targetRevision: 0.174.0
+      helm:
+        releaseName: otel-collector
+        valueFiles:
+          - $values/observability/values/otel-collector.yaml
+    - repoURL: https://gitlab.com/keir0/k8s_lab.git
+      targetRevision: obs
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: observability
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    # Child Applications sync in wave order but ArgoCD doesn't wait for one to be
+    # healthy before starting the next, so CRDs (ServiceMonitor) or Services a chart
+    # depends on may not exist yet on the first attempt. Retrying converges.
+    retry:
+      limit: 10
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
+    syncOptions:
+      - CreateNamespace=true

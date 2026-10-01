@@ -1,0 +1,85 @@
+# Jaeger's HotROD ride-sharing demo: four OTel-instrumented services (frontend, customer,
+# driver, route) in one process, calling each other over HTTP/gRPC, with fake MySQL/Redis
+# latency built in. Traces go out as OTLP/HTTP to the collector; metrics are exposed in
+# Prometheus format on the frontend's /metrics and scraped.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hotrod
+  labels:
+    app.kubernetes.io/name: hotrod
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hotrod
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hotrod
+    spec:
+      containers:
+        - name: hotrod
+          image: jaegertracing/example-hotrod:2.21.0
+          args: ["all"]
+          env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector.observability.svc:4318
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hotrod
+  labels:
+    app.kubernetes.io/name: hotrod
+spec:
+  selector:
+    app.kubernetes.io/name: hotrod
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hotrod
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: hotrod.k8s-lab.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hotrod
+                port:
+                  name: http
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: hotrod
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hotrod
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

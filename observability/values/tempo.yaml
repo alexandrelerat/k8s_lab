@@ -1,0 +1,45 @@
+# Helm values for grafana-community/tempo, single-binary mode
+# (https://github.com/grafana-community/helm-charts/tree/main/charts/tempo).
+
+tempo:
+  reportingEnabled: false
+  retention: 48h
+  # Everything reaches Tempo as OTLP through the OTel Collector. (The chart's default
+  # Jaeger receivers stay: its Service template requires them, and they're unused.)
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+  metricsGenerator:
+    enabled: true
+    storage:
+      path: /var/tempo/generator/wal
+      remote_write:
+        - url: http://kube-prometheus-stack-prometheus.observability.svc:9090/api/v1/write
+          # Attach trace IDs as exemplars on the generated metrics.
+          send_exemplars: true
+  overrides:
+    defaults:
+      metrics_generator:
+        # service-graphs -> traces_service_graph_request_total & co (Grafana service map)
+        # span-metrics   -> traces_spanmetrics_calls_total / _latency (RED metrics per span)
+        processors:
+          - service-graphs
+          - span-metrics
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      memory: 768Mi
+
+persistence:
+  enabled: true
+  storageClassName: local-path
+  size: 5Gi
+
+serviceMonitor:
+  enabled: true

@@ -1,0 +1,23 @@
+# App-of-apps for the observability lab: applied once by hand, then ArgoCD syncs every
+# Application under apps/ from git. Adding, removing or changing a component is done
+# by editing apps/ or values/ and pushing, not with kubectl/helm.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: observability
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+  source:
+    repoURL: https://gitlab.com/keir0/k8s_lab.git
+    targetRevision: obs
+    path: observability/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
