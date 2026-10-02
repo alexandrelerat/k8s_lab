@@ -103,9 +103,9 @@ grafana:
   resources:
     requests:
       cpu: 50m
-      memory: 192Mi
+      memory: 256Mi
     limits:
-      memory: 384Mi
+      memory: 768Mi
   sidecar:
     datasources:
       # The built-in Prometheus datasource (uid "prometheus"): exemplars carrying a
