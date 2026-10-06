@@ -19,7 +19,7 @@ spec:
         releaseName: otel-collector
         valueFiles:
           - $values/observability/values/otel-collector.yaml
-    - repoURL: https://gitlab.com/keir0/k8s_lab.git
+    - repoURL: https://github.com/alexandrelerat/k8s_lab.git
       targetRevision: obs
       ref: values
   destination:

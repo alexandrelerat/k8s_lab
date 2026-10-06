@@ -20,7 +20,7 @@ spec:
         releaseName: kube-prometheus-stack
         valueFiles:
           - $values/observability/values/kube-prometheus-stack.yaml
-    - repoURL: https://gitlab.com/keir0/k8s_lab.git
+    - repoURL: https://github.com/alexandrelerat/k8s_lab.git
       targetRevision: obs
       ref: values
   destination:

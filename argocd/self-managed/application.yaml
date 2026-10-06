@@ -18,7 +18,7 @@ spec:
         valueFiles:
           - $values/argocd/self-managed/values.yaml
     - repoURL: https://github.com/alexandrelerat/k8s_lab.git
-      targetRevision: main
+      targetRevision: obs
       ref: values
   destination:
     server: https://kubernetes.default.svc
