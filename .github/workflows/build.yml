@@ -1,0 +1,54 @@
+name: Build
+
+on:
+  push:
+    branches: [workflow]
+    paths:
+      - "*/data"
+  workflow_dispatch:
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      dirs: ${{ steps.detect.outputs.dirs }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed folders
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          SHA: ${{ github.sha }}
+        run: |
+          # Manual run, first push of the branch or force push: build everything
+          if [ "$EVENT" = workflow_dispatch ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            files=$(git ls-files)
+          else
+            files=$(git diff --name-only --diff-filter=d "$BEFORE" "$SHA")
+          fi
+          dirs=$(printf '%s\n' "$files" | grep -E '^[^/]+/data$' | xargs -r -n1 dirname | jq -Rsc 'split("\n") | map(select(. != "")) | unique')
+          echo "Folders to build: $dirs"
+          echo "dirs=$dirs" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.dirs != '[]'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changes.outputs.dirs) }}
+    name: Build ${{ matrix.dir }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build
+        env:
+          DIR: ${{ matrix.dir }}
+        run: cat "$DIR/data"
